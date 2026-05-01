@@ -2,7 +2,7 @@ import { useState, useMemo, useEffect, useRef } from "react";
 import { LineChart, Line, BarChart, Bar, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from "recharts";
 
 const COLORS = ["#6366f1","#22d3ee","#f59e0b","#10b981","#f43f5e","#a78bfa","#34d399","#fb923c","#38bdf8","#e879f9"];
-const CATS = ["Renta Variable","Renta Fija","Monetario","ETC","Crypto","Mixto","Otro"];
+const CATS = ["Renta Variable","Renta Fija","Monetario","ETC","Crypto","Mixto","Otro"]; 
 
 const FACTSHEETS = {
   "IE00B03HD191": { nombre:"Vanguard Global Stock", sectores:{"Tecnología":24.98,"Serv. Financieros":16.82,"Salud":11.15,"Industria":10.28,"Consumo Cíclico":9.98,"Consumo Defensivo":6.44,"Comunicaciones":8.09,"Energía":4.15,"Inmobiliario":2.21,"Materiales":3.17}, paises:{"EE.UU.":71.87,"Japón":5.42,"Reino Unido":3.68,"Zona Euro":8.44,"Canadá":3.16,"Australia":1.67}, holdings:[{n:"Apple",p:4.91},{n:"NVIDIA",p:3.90},{n:"Microsoft",p:3.90},{n:"Amazon",p:2.64},{n:"Meta",p:1.85},{n:"Alphabet A",p:1.33},{n:"Tesla",p:1.10},{n:"Broadcom",p:1.10}], rent:{2020:6.25,2021:30.98,2022:-12.85,2023:19.54,2024:26.50} },
