@@ -132,39 +132,100 @@ export default function App() {
 
   const delAport = id => saveAport(aport.filter(a=>a.id!==id));
 
-  // ─── ACTUALIZAR PRECIOS VIA YAHOO FINANCE ─────────────────
+ // ─── ACTUALIZAR PRECIOS ───────────────────────────────────
+  // Estrategia: OpenFIGI (ISIN→ticker) + Stooq (precio)
+  // Fallback: Morningstar API no oficial
+  const fetchPrecioStooq = async (ticker) => {
+    const url = `https://stooq.com/q/l/?s=${encodeURIComponent(ticker)}&f=sd2t2ohlcv&h&e=csv`;
+    const r = await fetch(url);
+    const text = await r.text();
+    const lines = text.trim().split("\n");
+    if (lines.length < 2) throw new Error("sin datos");
+    const vals = lines[1].split(",");
+    const close = parseFloat(vals[6]);
+    if (isNaN(close) || close <= 0) throw new Error("precio inválido");
+    return close;
+  };
+
+  const fetchTickerOpenFIGI = async (isin) => {
+    const r = await fetch("https://api.openfigi.com/v3/mapping", {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify([{idType: "ID_ISIN", idValue: isin}])
+    });
+    const data = await r.json();
+    const items = data?.[0]?.data;
+    if (!items?.length) throw new Error("ISIN no encontrado");
+    // Preferir fondos/ETFs cotizados en Europa
+    const europeo = items.find(x => ["XETR","XPAR","XLON","XMIL","XAMS","XMAD","XDUB"].includes(x.exchCode));
+    const item = europeo || items[0];
+    return item.ticker + "." + (item.exchCode === "XETR" ? "DE" : item.exchCode === "XPAR" ? "FR" : item.exchCode === "XLON" ? "UK" : item.exchCode === "XMAD" ? "MC" : "IR");
+  };
+
+  const fetchPrecioMorningstar = async (isin) => {
+    const searchR = await fetch(`https://www.morningstar.es/es/util/SecuritySearch.ashx?q=${isin}&limit=1&preferedList=&source=nav`);
+    const txt = await searchR.text();
+    const match = txt.match(/i=([^|]+)/);
+    if (!match) throw new Error("no encontrado");
+    const msId = match[1];
+    const pageR = await fetch(`https://www.morningstar.es/es/funds/snapshot/snapshot.aspx?id=${msId}`);
+    const html = await pageR.text();
+    const navMatch = html.match(/(\d+[.,]\d+)\s*<\/td>/g);
+    if (!navMatch) throw new Error("precio no encontrado");
+    const precio = parseFloat(navMatch[0].replace(/<[^>]+>/g,"").replace(",",".").trim());
+    if (isNaN(precio) || precio <= 0) throw new Error("precio inválido");
+    return precio;
+  };
+
   const actualizarPrecios = async () => {
     setRefreshing(true);
     setRefreshStatus({});
     const updated = [...funds];
     const status = {};
+
     for (let i = 0; i < updated.length; i++) {
       const f = updated[i];
-      const ticker = ISIN_TICKER[f.isin.toUpperCase()] || (f.isin + ".IR");
       status[f.id] = "loading";
       setRefreshStatus({...status});
+      let precio = null;
+
+      // Intento 1: Stooq con ticker conocido
       try {
-        const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(ticker)}?interval=1d&range=5d`;
-        const r = await fetch(url);
-        if (!r.ok) throw new Error("HTTP " + r.status);
-        const data = await r.json();
-        const closes = data?.chart?.result?.[0]?.indicators?.quote?.[0]?.close;
-        if (!closes?.length) throw new Error("sin datos");
-        let precio = null;
-        for (let j = closes.length-1; j >= 0; j--) { if (closes[j] != null) { precio = closes[j]; break; } }
-        if (!precio) throw new Error("precio nulo");
+        const tickerConocido = ISIN_TICKER[f.isin.toUpperCase()];
+        if (tickerConocido) {
+          precio = await fetchPrecioStooq(tickerConocido);
+        }
+      } catch {}
+
+      // Intento 2: OpenFIGI → Stooq
+      if (!precio) {
+        try {
+          const ticker = await fetchTickerOpenFIGI(f.isin);
+          precio = await fetchPrecioStooq(ticker);
+        } catch {}
+      }
+
+      // Intento 3: Morningstar
+      if (!precio) {
+        try {
+          precio = await fetchPrecioMorningstar(f.isin);
+        } catch {}
+      }
+
+      if (precio) {
         updated[i] = {...f, precio: parseFloat(precio.toFixed(4))};
         status[f.id] = "ok";
-      } catch {
+      } else {
         status[f.id] = "error";
       }
       setRefreshStatus({...status});
     }
+
     saveFunds(updated);
     setRefreshing(false);
-    const errores = updated.filter((_,i) => status[funds[i].id] === "error");
-    if (errores.length) showToast(`⚠️ ${errores.length} fondos sin actualizar — edítalos manualmente`);
-    else showToast("✓ Precios actualizados");
+    const nErrores = Object.values(status).filter(v => v === "error").length;
+    if (nErrores > 0) showToast(`⚠️ ${nErrores} fondos sin actualizar — edítalos manualmente`);
+    else showToast("✓ Todos los precios actualizados");
   };
 
   // ─── PARSEO CSV ───────────────────────────────────────────
