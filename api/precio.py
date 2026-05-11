@@ -1,3 +1,4 @@
+import json
 import yfinance as yf
 from http.server import BaseHTTPRequestHandler
 from urllib.parse import urlparse, parse_qs
@@ -14,19 +15,30 @@ ISIN_TICKER = {
 class handler(BaseHTTPRequestHandler):
     def do_GET(self):
         params = parse_qs(urlparse(self.path).query)
-        isin = params.get("isin", [""])[0].upper()
+        isin = params.get("isin", [""])[0].upper().strip()
+        
+        if not isin:
+            self._respond(400, {"error": "ISIN requerido"})
+            return
+
         ticker = ISIN_TICKER.get(isin, isin + ".IR")
+        
         try:
-            data = yf.Ticker(ticker)
-            precio = data.fast_info["lastPrice"]
-            self.send_response(200)
-            self.send_header("Content-type", "application/json")
-            self.send_header("Access-Control-Allow-Origin", "*")
-            self.end_headers()
-            self.wfile.write(f'{{"precio": {round(precio, 4)}, "ticker": "{ticker}"}}'.encode())
+            t = yf.Ticker(ticker)
+            info = t.fast_info
+            precio = info.get("lastPrice") or info.get("regularMarketPrice")
+            if not precio:
+                hist = t.history(period="5d")
+                if hist.empty:
+                    raise Exception(f"Sin datos para {ticker}")
+                precio = float(hist["Close"].dropna().iloc[-1])
+            self._respond(200, {"precio": round(float(precio), 4), "ticker": ticker, "isin": isin})
         except Exception as e:
-            self.send_response(500)
-            self.send_header("Content-type", "application/json")
-            self.send_header("Access-Control-Allow-Origin", "*")
-            self.end_headers()
-            self.wfile.write(f'{{"error": "{str(e)}"}}'.encode())
+            self._respond(500, {"error": str(e), "ticker": ticker, "isin": isin})
+
+    def _respond(self, code, body):
+        self.send_response(code)
+        self.send_header("Content-type", "application/json")
+        self.send_header("Access-Control-Allow-Origin", "*")
+        self.end_headers()
+        self.wfile.write(json.dumps(body).encode())
